@@ -1,0 +1,39 @@
+name: main
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  mirror:
+    name: mirror
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed to push the mirror commits and tags below
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set git config
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - run: uv run --no-project mirror.py
+
+      - name: Push commits and tags
+        run: |
+          if [ -z "$(git log origin/main..HEAD)" ]; then
+            echo "Already up to date with pyscn on PyPI."
+            exit 0
+          fi
+          git push origin HEAD:refs/heads/main
+          # mirror.py creates lightweight tags, which --follow-tags would skip.
+          git push origin --tags

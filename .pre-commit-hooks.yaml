@@ -1,0 +1,9 @@
+- id: pyscn
+  name: pyscn check
+  description: "Run 'pyscn check', the pyscn code quality gate"
+  entry: pyscn check
+  language: python
+  types: [python]
+  # pyscn analyses the whole project, not the individual files handed to it.
+  pass_filenames: false
+  require_serial: true
