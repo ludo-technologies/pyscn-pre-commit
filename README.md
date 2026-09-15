@@ -15,7 +15,7 @@ Add this to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/ludo-technologies/pyscn-pre-commit
-    rev: v1.31.3
+    rev: v1.32.0
     hooks:
       - id: pyscn
 ```

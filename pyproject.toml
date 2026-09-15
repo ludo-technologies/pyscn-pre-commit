@@ -2,5 +2,5 @@
 name = "pyscn-pre-commit"
 version = "0.0.0"
 dependencies = [
-    "pyscn==1.31.3",
+    "pyscn==1.32.0",
 ]
