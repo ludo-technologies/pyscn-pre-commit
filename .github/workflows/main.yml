@@ -17,8 +17,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: true
-          # mirror.py numbers same-day tags, so it has to see the existing ones.
-          fetch-tags: true
+          # mirror.py numbers same-day tags, so it has to see all existing ones;
+          # a shallow clone misses tags on older commits.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
