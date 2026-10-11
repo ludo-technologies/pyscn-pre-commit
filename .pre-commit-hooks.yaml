@@ -1,9 +1,21 @@
 - id: pyscn
   name: pyscn check
-  description: "Run 'pyscn check', the pyscn code quality gate"
-  entry: pyscn check
+  description: "Run 'pyscn check', the pyscn code quality gate for Python"
+  # Clone detection is too slow for a commit hook and never fails the check.
+  entry: pyscn check --skip-clones
   language: python
   types: [python]
-  # pyscn analyses the whole project, not the individual files handed to it.
+  # Both analysers check the whole project, not the individual files handed to them.
   pass_filenames: false
   require_serial: true
+- id: polyscan
+  name: polyscan check
+  description: "Run 'polyscan check', the polyscan code quality gate for JavaScript, TypeScript, Go, Rust and C++"
+  entry: polyscan check
+  language: node
+  # Every extension polyscan analyses; identify has no tag for .mts and .cts.
+  files: \.(js|jsx|mjs|cjs|ts|tsx|mts|cts|go|rs|cpp|cc|cxx|hpp|hh|hxx|h|ipp|inl)$
+  pass_filenames: false
+  require_serial: true
+  # Installed globally with the hook so that its `polyscan` bin lands on PATH.
+  additional_dependencies: ["polyscan@0.6.0"]

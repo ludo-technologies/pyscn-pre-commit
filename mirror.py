@@ -5,81 +5,104 @@
 #   "urllib3==2.3.0",
 # ]
 # ///
-"""Update pyscn-pre-commit to the latest version of pyscn."""
+"""Update polyscan-pre-commit to the latest versions of pyscn and polyscan."""
 
+import datetime
 import re
 import subprocess
-import tomllib
-import typing
+from dataclasses import dataclass
 from pathlib import Path
 
 import urllib3
-from packaging.requirements import Requirement
 from packaging.version import Version
 
-PACKAGE = "pyscn"
+ROOT = Path(__file__).parent
+
+
+@dataclass(frozen=True)
+class Mirror:
+    package: str
+    index_url: str
+    # Key of the registry document that maps every published version.
+    versions_key: str
+    # File that pins the version, and how the pin is written there.
+    path: str
+    pin: str
+
+    @property
+    def pin_pattern(self) -> str:
+        return re.escape(self.pin).replace(r"\{\}", r"([^\s\"']+)")
+
+    def current_version(self) -> Version:
+        content = (ROOT / self.path).read_text()
+        matches = re.findall(self.pin_pattern, content)
+        assert len(matches) == 1, f"{self.path} should pin {self.package} exactly once"
+        return Version(matches[0])
+
+    def latest_version(self) -> Version:
+        response = urllib3.request("GET", self.index_url)
+        if response.status != 200:
+            raise RuntimeError(f"Failed to fetch {self.package} versions from {self.index_url}")
+        # Betas are not mirrored: a pre-commit `rev` is meant to be something a
+        # project can sit on.
+        versions = (Version(v) for v in response.json()[self.versions_key])
+        return max(v for v in versions if not v.is_prerelease)
+
+    def pin_to(self, version: Version) -> None:
+        path = ROOT / self.path
+        path.write_text(re.sub(self.pin_pattern, self.pin.format(version), path.read_text()))
+
+
+MIRRORS = (
+    Mirror(
+        package="pyscn",
+        index_url="https://pypi.org/pypi/pyscn/json",
+        versions_key="releases",
+        path="pyproject.toml",
+        pin='"pyscn=={}"',
+    ),
+    Mirror(
+        package="polyscan",
+        index_url="https://registry.npmjs.org/polyscan",
+        versions_key="versions",
+        path=".pre-commit-hooks.yaml",
+        pin="polyscan@{}",
+    ),
+)
 
 
 def main() -> None:
-    with open(Path(__file__).parent / "pyproject.toml", "rb") as f:
-        pyproject = tomllib.load(f)
+    updated = False
+    for mirror in MIRRORS:
+        current, latest = mirror.current_version(), mirror.latest_version()
+        if latest > current:
+            mirror.pin_to(latest)
+            updated = True
 
-    current_version = get_current_version(pyproject=pyproject)
-    target_versions = [v for v in get_all_versions() if v > current_version]
+    if not updated:
+        print("Already up to date with pyscn and polyscan.")
+        return
 
-    for version in target_versions:
-        paths = process_version(version)
-        if subprocess.check_output(["git", "status", "-s"]).strip():
-            subprocess.run(["git", "add", *paths], check=True)
-            subprocess.run(["git", "commit", "-m", f"Mirror: {version}"], check=True)
-            subprocess.run(["git", "tag", f"v{version}"], check=True)
-        else:
-            print(f"No change v{version}")
+    tag = next_tag()
+    readme = ROOT / "README.md"
+    readme.write_text(re.sub(r"rev: v[\d.]+", f"rev: {tag}", readme.read_text()))
 
-
-def get_all_versions() -> list[Version]:
-    response = urllib3.request("GET", f"https://pypi.org/pypi/{PACKAGE}/json")
-    if response.status != 200:
-        raise RuntimeError("Failed to fetch versions from pypi")
-
-    versions = [Version(release) for release in response.json()["releases"]]
-    # Betas are published to PyPI but are not mirrored: a pre-commit `rev` is
-    # meant to be something a project can sit on.
-    return sorted(v for v in versions if not v.is_prerelease)
+    versions = ", ".join(f"{m.package} {m.current_version()}" for m in MIRRORS)
+    paths = ["README.md", *(m.path for m in MIRRORS)]
+    subprocess.run(["git", "add", *paths], check=True)
+    subprocess.run(["git", "commit", "-m", f"Mirror: {versions}"], check=True)
+    subprocess.run(["git", "tag", tag], check=True)
 
 
-def get_current_version(pyproject: dict) -> Version:
-    requirements = [Requirement(d) for d in pyproject["project"]["dependencies"]]
-    requirement = next((r for r in requirements if r.name == PACKAGE), None)
-    assert requirement is not None, f"pyproject.toml does not have {PACKAGE} requirement"
-
-    specifiers = list(requirement.specifier)
-    assert (
-        len(specifiers) == 1 and specifiers[0].operator == "=="
-    ), f"{PACKAGE}'s specifier should be exact matching, but `{requirement}`"
-
-    return Version(specifiers[0].version)
-
-
-def process_version(version: Version) -> typing.Sequence[str]:
-    def replace_pyproject_toml(content: str) -> str:
-        return re.sub(rf'"{PACKAGE}==.*"', f'"{PACKAGE}=={version}"', content)
-
-    def replace_readme_md(content: str) -> str:
-        return re.sub(r"rev: v\d+\.\d+\.\d+", f"rev: v{version}", content)
-
-    paths = {
-        "pyproject.toml": replace_pyproject_toml,
-        "README.md": replace_readme_md,
-    }
-
-    for path, replacer in paths.items():
-        with open(path) as f:
-            content = replacer(f.read())
-        with open(path, mode="w") as f:
-            f.write(content)
-
-    return tuple(paths.keys())
+def next_tag() -> str:
+    """Date the release, numbering any further releases on the same day."""
+    base = datetime.datetime.now(datetime.UTC).strftime("v%Y.%m.%d")
+    existing = set(subprocess.check_output(["git", "tag", "--list", f"{base}*"], text=True).split())
+    tag, n = base, 1
+    while tag in existing:
+        n += 1
+        tag = f"{base}.{n}"
+    return tag
 
 
 if __name__ == "__main__":

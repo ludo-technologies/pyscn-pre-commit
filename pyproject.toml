@@ -1,5 +1,5 @@
 [project]
-name = "pyscn-pre-commit"
+name = "polyscan-pre-commit"
 version = "0.0.0"
 dependencies = [
     "pyscn==1.31.1",
